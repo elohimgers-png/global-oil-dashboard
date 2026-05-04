@@ -231,15 +231,33 @@ def forecast_simple(df_country, steps=12):
 
 def forecast_prophet(df_country, steps=12):
     try:
-        df = df_country[["Date", "Production_kbpd"]].copy()
-        df.columns = ['ds', 'y']
+        from prophet import Prophet
         import logging
+        
+        # Suppress Prophet's verbose output
         logging.getLogger("prophet").setLevel(logging.ERROR)
         logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
-        model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False, interval_width=0.95)
-        model.fit(df)
+        
+        df = df_country[["Date", "Production_kbpd"]].copy()
+        df.columns = ['ds', 'y']
+        
+        # Check if we have enough data
+        if len(df) < 10:
+            st.warning("⚠️ Not enough data for Prophet. Need at least 10 data points.")
+            return None, None, None
+        
+        model = Prophet(
+            yearly_seasonality=True, 
+            weekly_seasonality=False, 
+            daily_seasonality=False, 
+            interval_width=0.95
+        )
+        
+        model.fit(df, show_progress=False)
+        
         future = model.make_future_dataframe(periods=steps, freq='MS')
         forecast = model.predict(future)
+        
         viz_df = pd.DataFrame({
             'Date': forecast['ds'],
             'Forecast': forecast['yhat'],
@@ -247,11 +265,15 @@ def forecast_prophet(df_country, steps=12):
             'Upper_Bound': forecast['yhat_upper'],
             'Type': ['Historical' if d < df['ds'].max() else 'Forecast' for d in forecast['ds']]
         })
+        
         return viz_df, model, forecast
-    except Exception as e:
-        st.error(f"Prophet error: {e}")
+        
+    except ImportError:
+        st.error("❌ Prophet library not installed. Please install: pip install prophet")
         return None, None, None
-
+    except Exception as e:
+        st.warning(f"⚠️ Prophet encountered an issue: {str(e)[:150]}... Using fallback.")
+        return None, None, None
 def forecast_arima(df_country, steps=12):
     try:
         from statsmodels.tsa.arima.model import ARIMA
