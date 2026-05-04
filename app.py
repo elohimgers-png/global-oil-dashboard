@@ -14,7 +14,12 @@ import csv
 import io
 
 warnings.filterwarnings("ignore")
-
+# Check if kaleido is available
+try:
+    import kaleido
+    KALEIDO_AVAILABLE = True
+except:
+    KALEIDO_AVAILABLE = False
 # Page config
 st.set_page_config(
     page_title="Global Oil Analytics Dashboard v2.3",
@@ -68,23 +73,26 @@ def generate_pdf_report(title, metrics_df):
     return pdf.output(dest='S').encode('latin1')
 
 def convert_fig_to_png(fig):
-    """Convert Plotly figure to PNG using Plotly's native renderer."""
+    """Convert Plotly figure to PNG bytes."""
     try:
         import plotly.io as pio
-        import base64
         
-        # Convert to PNG bytes
-        img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2, engine="kaleido")
+        # Try kaleido engine (works locally and should work on Streamlit Cloud)
+        img_bytes = pio.to_image(
+            fig, 
+            format="png", 
+            width=1200, 
+            height=600, 
+            scale=2,
+            engine="kaleido"
+        )
         return img_bytes
-    except:
-        try:
-            # Fallback: use plotly's default engine
-            import plotly.io as pio
-            img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2)
-            return img_bytes
-        except:
-            # If all else fails, return None (user can use Plotly's built-in camera)
-            return None    
+        
+    except Exception as e:
+        # Log the error for debugging
+        st.warning(f"⚠️ PNG export issue: {str(e)[:100]}")
+        return None
+
 # --- DATA LOADING FUNCTIONS ---
 
 @st.cache_data(ttl=3600)
