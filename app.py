@@ -68,15 +68,24 @@ def generate_pdf_report(title, metrics_df):
     return pdf.output(dest='S').encode('latin1')
 
 def convert_fig_to_png(fig):
+    """Convert Plotly figure to PNG using Plotly's native renderer."""
     try:
-        img_bytes = fig.to_image(format="png", width=1200, height=600, scale=2)
+        import plotly.io as pio
+        import base64
+        
+        # Convert to PNG bytes
+        img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2, engine="kaleido")
         return img_bytes
-    except Exception as e:
-        st.warning(f"⚠️ Chart export requires kaleido: pip install kaleido")
-        return None
-
+    except:
+        try:
+            # Fallback: use plotly's default engine
+            import plotly.io as pio
+            img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2)
+            return img_bytes
+        except:
+            # If all else fails, return None (user can use Plotly's built-in camera)
+            return None    
 # --- DATA LOADING FUNCTIONS ---
-
 
 @st.cache_data(ttl=3600)
 def load_production_data():
