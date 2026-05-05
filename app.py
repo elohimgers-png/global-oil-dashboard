@@ -15,11 +15,6 @@ import io
 warnings.filterwarnings("ignore")
 
 # Check if kaleido is available
-try:
-    import kaleido
-    KALEIDO_AVAILABLE = True
-except:
-    KALEIDO_AVAILABLE = False
 
 # Page config
 st.set_page_config(
@@ -75,14 +70,15 @@ def generate_pdf_report(title, metrics_df):
 
 def convert_fig_to_png(fig):
     """Convert Plotly figure to PNG bytes."""
-    if not KALEIDO_AVAILABLE:
-        return None
     try:
         import plotly.io as pio
+        # Try to use kaleido (works on Streamlit Cloud)
         img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2)
         return img_bytes
-    except:
+    except Exception as e:
+        # If kaleido fails, return None (user can use Plotly's built-in camera)
         return None
+
 
 # --- DATA LOADING FUNCTIONS ---
 
