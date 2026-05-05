@@ -295,8 +295,10 @@ def forecast_arima(df_country, steps=12):
 prod_df = load_production_data()
 price_df = load_prices()
 
+
 # --- SIDEBAR ---
 with st.sidebar:
+    # Profile Section
     st.markdown('<div class="profile-container">', unsafe_allow_html=True)
     st.markdown(load_profile(), unsafe_allow_html=True)
     st.markdown('<div class="profile-name">Gerson Japhet Fumbuka</div>', unsafe_allow_html=True)
@@ -305,23 +307,98 @@ with st.sidebar:
     
     st.divider()
     
-    with st.expander("📖 About This Dashboard"):
+    # About This Dashboard
+    with st.expander("📖 About This Dashboard", expanded=False):
         st.markdown("""
-        **Global Oil Analytics Dashboard v2.3** provides:
-        - Real-time oil production monitoring
-        - ML-powered forecasting with LSTM
-        - Price correlation analysis
-        - Interactive visualizations
-        - Mobile-optimized interface
-        - CSV/PDF export functionality
+        **Global Oil Analytics Dashboard v2.3**
+        
+        A comprehensive oil production analytics tool featuring:
+        
+        ✅ **Real-time Monitoring**
+        - Live Brent crude oil prices from Yahoo Finance
+        - Production data for 11 major oil-producing nations
+        - Monthly data from 2019-2024
+        
+        ✅ **Advanced Forecasting**
+        - LSTM (Deep Learning) neural networks
+        - ARIMA (Statistical) modeling
+        - Linear Regression baseline
+        
+        ✅ **Interactive Visualizations**
+        - Choropleth world maps
+        - Time series charts with confidence intervals
+        - Dual-axis correlation plots
+        
+        ✅ **Export Capabilities**
+        - PNG chart downloads
+        - CSV data exports
+        - PDF report generation
+        
+        **Version:** 2.3  
+        **Last Updated:** May 2026  
+        **Author:** Gerson Japhet Fumbuka
         """)
     
     st.divider()
-    st.subheader("🎛️ Controls")
     
-    region = st.selectbox("Select Region", ["Global", "Africa", "Middle East", "Americas", "Asia", "Europe"], index=0)
+    # Data Sources & Methodology
+    with st.expander("📚 Data Sources & Methodology", expanded=False):
+        st.markdown("""
+        ### 📊 Data Sources
+        
+        **Production Data:**
+        - Source: EIA (U.S. Energy Information Administration)
+        - Coverage: 11 major oil-producing countries
+        - Period: 2019-2024 (monthly)
+        - Unit: Thousand barrels per day (kbpd)
+        
+        **Price Data:**
+        - Source: Yahoo Finance API
+        - Benchmark: Brent Crude Oil (BZ=F)
+        - Frequency: Monthly averages
+        - Currency: USD per barrel
+        
+        ### 🔬 Methodology
+        
+        **1. LSTM (Deep Learning)**
+        - Architecture: 2-layer LSTM network
+        - Sequence length: 60 time steps
+        - Training: 50 epochs, batch size 32
+        - Optimizer: Adam
+        - Loss function: Mean Squared Error
+        
+        **2. ARIMA (Statistical)**
+        - Order: (1,1,1) or (1,0,1)
+        - Method: Maximum Likelihood Estimation
+        - Confidence intervals: 95%
+        
+        **3. Linear Regression**
+        - Method: Ordinary Least Squares
+        - Features: Time index
+        - Baseline comparison model
+        
+        **Performance Metrics:**
+        - RMSE (Root Mean Square Error)
+        - MAPE (Mean Absolute Percentage Error)
+        - Validation: Last 12 months holdout
+        """)
     
     st.divider()
+    
+    # Controls Section
+    st.subheader("🎛️ Controls")
+    
+    # Region Selector
+    region = st.selectbox(
+        "Select Region",
+        ["Global", "Africa", "Middle East", "Americas", "Asia", "Europe"],
+        index=0,
+        help="Filter countries by geographic region"
+    )
+    
+    st.divider()
+    
+    # Country Selection
     st.subheader("🌍 Select Countries")
     
     all_countries = sorted(prod_df['Country'].unique())
@@ -345,16 +422,108 @@ with st.sidebar:
     default_selection = ["Nigeria", "USA", "Saudi Arabia", "Russia", "China"]
     default_selection = [c for c in default_selection if c in available_countries]
     
-    selected_countries = st.multiselect("Choose countries:", options=available_countries, default=default_selection[:3] if default_selection else [])
+    selected_countries = st.multiselect(
+        "Choose countries:",
+        options=available_countries,
+        default=default_selection[:3] if default_selection else [],
+        help="Select one or more countries to analyze"
+    )
     
     st.divider()
-    show_fc = st.checkbox("📈 Show 12-Month Forecast", value=True)
+    
+    # Forecast Options
+    show_fc = st.checkbox("📈 Show 12-Month Forecast", value=True, help="Enable forecasting features")
     
     st.divider()
-    with st.expander("❓ User Guide"):
+    
+    # User Guide & Instructions Manual
+    with st.expander("❓ User Guide & Instructions Manual", expanded=False):
         st.markdown("""
-        **Step 1:** Select region → **Step 2:** Choose countries → **Step 3:** Enable forecast → **Step 4:** Explore tabs
+        ### 📖 Quick Start Guide
+        
+        **Getting Started:**
+        1. **Select Region:** Choose a geographic region from dropdown
+        2. **Choose Countries:** Pick one or more countries to analyze
+        3. **Enable Forecast:** Check the forecast box for predictions
+        4. **Explore Tabs:** Navigate through the four main tabs
+        
+        ### 📊 Tab-by-Tab Guide
+        
+        **🗺️ Map Tab:**
+        - View production levels on world map
+        - Color intensity shows production volume
+        - Download map as PNG or data as CSV
+        
+        **📈 Forecast Tab:**
+        - Select ONE country for forecasting
+        - Choose model: LSTM, ARIMA, or Linear
+        - View 12-month ahead predictions
+        - See 95% confidence intervals
+        - Compare model performance metrics
+        
+        **💰 Correlation Tab:**
+        - Analyze production vs Brent price relationship
+        - View dual-axis time series chart
+        - Check correlation coefficient
+        - Download chart and data
+        
+        **⚠️ Alerts & Export:**
+        - Monitor production drops (>10% month-over-month)
+        - Export all production data
+        - Download price data
+        - Generate PDF reports
+        
+        ### 💡 Pro Tips
+        
+        - **Best Performance:** ARIMA typically performs best (0.45% MAPE)
+        - **LSTM:** Requires 60+ data points for optimal results
+        - **Correlation:** Weak correlation is normal in oil markets
+        - **Mobile:** Use pinch-to-zoom on charts
+        - **Desktop:** Click legend to toggle data series
+        
+        ### 📈 Understanding Metrics
+        
+        **RMSE (Root Mean Square Error):**
+        - Measures absolute error in kbpd
+        - Lower values indicate better fit
+        - Example: 109 kbpd RMSE means ±109 kbpd average error
+        
+        **MAPE (Mean Absolute Percentage Error):**
+        - Measures percentage error
+        - Lower is better (<10% is excellent)
+        - Example: 0.45% MAPE means 99.55% accuracy
+        
+        ### 🆘 Troubleshooting
+        
+        **No data showing?**
+        - Check country selection in sidebar
+        - Ensure forecast is enabled for predictions
+        
+        **PNG download not working?**
+        - Use Plotly's built-in camera icon (top-right of chart)
+        
+        **Slow loading?**
+        - Reduce number of selected countries
+        - LSTM forecasting takes 30-60 seconds
+        
+        ---
+        
+        **Need Help?**
+        📧 Email: oilproductiondashboard@gmail.com  
+        🎓 DBA Scholar, INTI International University
         """)
+    
+    st.divider()
+    
+    # Contact/Info
+    st.markdown("""
+    <div style='text-align: center; color: #718096; font-size: 12px;'>
+    <b>Global Oil Analytics Dashboard v2.3</b><br>
+    DBA Research Project<br>
+    © 2026 Gerson Japhet Fumbuka
+    </div>
+    """, unsafe_allow_html=True)
+
 
 # --- MAIN CONTENT ---
 st.title("🛢️ Global Oil Analytics Dashboard v2.3")
