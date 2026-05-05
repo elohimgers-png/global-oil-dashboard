@@ -8,7 +8,6 @@ import yfinance as yf
 import warnings
 import base64
 import os
-from prophet import Prophet
 from fpdf import FPDF
 import csv
 import io
