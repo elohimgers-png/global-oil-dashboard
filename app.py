@@ -297,232 +297,193 @@ price_df = load_prices()
 
 
 # --- SIDEBAR ---
-with st.sidebar:
-    # Profile Section
-    st.markdown('<div class="profile-container">', unsafe_allow_html=True)
-    st.markdown(load_profile(), unsafe_allow_html=True)
-    st.markdown('<div class="profile-name">Gerson Japhet Fumbuka</div>', unsafe_allow_html=True)
-    st.markdown('<div class="profile-title">DBA Scholar<br>INTI International University<br>Nilai, Malaysia</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    st.divider()
-    
-    # About This Dashboard
-    with st.expander("📖 About This Dashboard", expanded=False):
-        st.markdown("""
-        **Global Oil Analytics Dashboard v2.3**
-        
-        A comprehensive oil production analytics tool featuring:
-        
-        ✅ **Real-time Monitoring**
-        - Live Brent crude oil prices from Yahoo Finance
-        - Production data for 11 major oil-producing nations
-        - Monthly data from 2019-2024
-        
-        ✅ **Advanced Forecasting**
-        - LSTM (Deep Learning) neural networks
-        - ARIMA (Statistical) modeling
-        - Linear Regression baseline
-        
-        ✅ **Interactive Visualizations**
-        - Choropleth world maps
-        - Time series charts with confidence intervals
-        - Dual-axis correlation plots
-        
-        ✅ **Export Capabilities**
-        - PNG chart downloads
-        - CSV data exports
-        - PDF report generation
-        
-        **Version:** 2.3  
-        **Last Updated:** May 2026  
-        **Author:** Gerson Japhet Fumbuka
-        """)
-    
-    st.divider()
-    
-    # Data Sources & Methodology
-    with st.expander("📚 Data Sources & Methodology", expanded=False):
-        st.markdown("""
-        ### 📊 Data Sources
-        
-        **Production Data:**
-        - Source: EIA (U.S. Energy Information Administration)
-        - Coverage: 11 major oil-producing countries
-        - Period: 2019-2024 (monthly)
-        - Unit: Thousand barrels per day (kbpd)
-        
-        **Price Data:**
-        - Source: Yahoo Finance API
-        - Benchmark: Brent Crude Oil (BZ=F)
-        - Frequency: Monthly averages
-        - Currency: USD per barrel
-        
-        ### 🔬 Methodology
-        
-        **1. LSTM (Deep Learning)**
-        - Architecture: 2-layer LSTM network
-        - Sequence length: 60 time steps
-        - Training: 50 epochs, batch size 32
-        - Optimizer: Adam
-        - Loss function: Mean Squared Error
-        
-        **2. ARIMA (Statistical)**
-        - Order: (1,1,1) or (1,0,1)
-        - Method: Maximum Likelihood Estimation
-        - Confidence intervals: 95%
-        
-        **3. Linear Regression**
-        - Method: Ordinary Least Squares
-        - Features: Time index
-        - Baseline comparison model
-        
-        **Performance Metrics:**
-        - RMSE (Root Mean Square Error)
-        - MAPE (Mean Absolute Percentage Error)
-        - Validation: Last 12 months holdout
-        """)
-    
-    st.divider()
-    
-    # Controls Section
-    st.subheader("🎛️ Controls")
-    
-    # Region Selector
-    region = st.selectbox(
-        "Select Region",
-        ["Global", "Africa", "Middle East", "Americas", "Asia", "Europe"],
-        index=0,
-        help="Filter countries by geographic region"
-    )
-    
-    st.divider()
-    
-    # Country Selection
-    st.subheader("🌍 Select Countries")
-    
-    all_countries = sorted(prod_df['Country'].unique())
-    
-    if region == "Global":
-        available_countries = all_countries
-    elif region == "Africa":
-        available_countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]
-    elif region == "Middle East":
-        available_countries = ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "UAE"]
-    elif region == "Americas":
-        available_countries = ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]
-    elif region == "Asia":
-        available_countries = ["China", "Japan", "India", "Indonesia"]
-    elif region == "Europe":
-        available_countries = ["Russia", "Norway", "United Kingdom"]
-    else:
-        available_countries = all_countries
-    
-    available_countries = [c for c in available_countries if c in all_countries]
-    default_selection = ["Nigeria", "USA", "Saudi Arabia", "Russia", "China"]
-    default_selection = [c for c in default_selection if c in available_countries]
-    
-    selected_countries = st.multiselect(
-        "Choose countries:",
-        options=available_countries,
-        default=default_selection[:3] if default_selection else [],
-        help="Select one or more countries to analyze"
-    )
-    
-    st.divider()
-    
-    # Forecast Options
-    show_fc = st.checkbox("📈 Show 12-Month Forecast", value=True, help="Enable forecasting features")
-    
-    st.divider()
-    
-    # User Guide & Instructions Manual
-    with st.expander("❓ User Guide & Instructions Manual", expanded=False):
-        st.markdown("""
-        ### 📖 Quick Start Guide
-        
-        **Getting Started:**
-        1. **Select Region:** Choose a geographic region from dropdown
-        2. **Choose Countries:** Pick one or more countries to analyze
-        3. **Enable Forecast:** Check the forecast box for predictions
-        4. **Explore Tabs:** Navigate through the four main tabs
-        
-        ### 📊 Tab-by-Tab Guide
-        
-        **🗺️ Map Tab:**
-        - View production levels on world map
-        - Color intensity shows production volume
-        - Download map as PNG or data as CSV
-        
-        **📈 Forecast Tab:**
-        - Select ONE country for forecasting
-        - Choose model: LSTM, ARIMA, or Linear
-        - View 12-month ahead predictions
-        - See 95% confidence intervals
-        - Compare model performance metrics
-        
-        **💰 Correlation Tab:**
-        - Analyze production vs Brent price relationship
-        - View dual-axis time series chart
-        - Check correlation coefficient
-        - Download chart and data
-        
-        **⚠️ Alerts & Export:**
-        - Monitor production drops (>10% month-over-month)
-        - Export all production data
-        - Download price data
-        - Generate PDF reports
-        
-        ### 💡 Pro Tips
-        
-        - **Best Performance:** ARIMA typically performs best (0.45% MAPE)
-        - **LSTM:** Requires 60+ data points for optimal results
-        - **Correlation:** Weak correlation is normal in oil markets
-        - **Mobile:** Use pinch-to-zoom on charts
-        - **Desktop:** Click legend to toggle data series
-        
-        ### 📈 Understanding Metrics
-        
-        **RMSE (Root Mean Square Error):**
-        - Measures absolute error in kbpd
-        - Lower values indicate better fit
-        - Example: 109 kbpd RMSE means ±109 kbpd average error
-        
-        **MAPE (Mean Absolute Percentage Error):**
-        - Measures percentage error
-        - Lower is better (<10% is excellent)
-        - Example: 0.45% MAPE means 99.55% accuracy
-        
-        ### 🆘 Troubleshooting
-        
-        **No data showing?**
-        - Check country selection in sidebar
-        - Ensure forecast is enabled for predictions
-        
-        **PNG download not working?**
-        - Use Plotly's built-in camera icon (top-right of chart)
-        
-        **Slow loading?**
-        - Reduce number of selected countries
-        - LSTM forecasting takes 30-60 seconds
-        
-        ---
-        
-        **Need Help?**
-        📧 Email: oilproductiondashboard@gmail.com  
-        🎓 DBA Scholar, INTI International University
-        """)
-    
-    st.divider()
-    
-    # Contact/Info
-    st.markdown("""
-    <div style='text-align: center; color: #718096; font-size: 12px;'>
-    <b>Global Oil Analytics Dashboard v2.3</b><br>
-    DBA Research Project<br>
-    © 2026 Gerson Japhet Fumbuka
+
+# Generate profile image
+def get_profile_html():
+    profile_path = "profile.jpg"
+    if os.path.exists(profile_path):
+        try:
+            with open(profile_path, "rb") as f:
+                data = f.read()
+                encoded = base64.b64encode(data).decode()
+                return f'<img src="data:image/jpeg;base64,{encoded}" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:3px solid #1a365d;">'
+        except:
+            pass
+    # Fallback: Show initials with gradient
+    return '<div style="width:120px;height:120px;border-radius:50%;background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);display:flex;align-items:center;justify-content:center;color:white;font-size:40px;font-weight:bold;border:3px solid #1a365d;box-shadow:0 4px 6px rgba(0,0,0,0.1);">GF</div>'
+
+profile_img = get_profile_html()
+
+st.sidebar.markdown(f"""
+<div style="text-align: center; margin-bottom: 20px;">
+    <div style="margin-bottom: 10px;">
+        {profile_img}
     </div>
-    """, unsafe_allow_html=True)
+    <div style="font-size: 18px; font-weight: bold; color: #1a365d; margin-bottom: 5px;">Gerson Japhet Fumbuka</div>
+    <div style="font-size: 13px; color: #4a5568; line-height: 1.5;">
+        DBA Scholar<br>
+        INTI International University<br>
+        Nilai, Malaysia
+    </div>
+</div>
+""", unsafe_allow_html=True)
+
+st.sidebar.markdown("---")
+
+# 📖 ABOUT THIS DASHBOARD
+with st.sidebar.expander("📖 About This Dashboard"):
+    st.markdown("""
+    ### 🎯 Purpose
+    This **Global Oil Production & Analytics Dashboard** is an open-access, interactive research tool designed to advance evidence-based understanding of petroleum resource dynamics across major oil-producing regions.
+    
+    ### 🌐 Why This Matters
+    - **Global Significance**: Oil production drives economic development, geopolitical power, and energy security
+    - **Data Transparency**: Addresses fragmented data through open, standardized presentation
+    - **Academic Rigor**: Provides methodological transparency for peer-reviewed research
+    - **Policy Support**: Enables data-driven decision-making for stakeholders
+    
+    ### 🎓 Benefits
+    
+    **For Students:**
+    - ✅ Hands-on learning with real production trends
+    - ✅ Skill development in data visualization and statistical analysis
+    - ✅ Project inspiration for term papers and thesis work
+    
+    **For Researchers:**
+    - ✅ Rapid hypothesis testing across regions and time periods
+    - ✅ Methodological transparency with documented calculations
+    - ✅ Cross-disciplinary collaboration support
+    
+    **For Scholars:**
+    - ✅ Evidence-based advocacy and policy dialogue
+    - ✅ Longitudinal analysis of structural vs. cyclical trends
+    - ✅ Global comparative work and capacity building
+    
+    ### 🔓 Open Access
+    This dashboard is provided under principles of **open science** and **equitable knowledge access**—free to use, transparent methodology, and privacy-respecting.
+    """)
+
+# 📚 DATA SOURCES & METHODOLOGY
+with st.sidebar.expander("📚 Data Sources & Methodology"):
+    st.markdown("### 🔍 Data Sources")
+    st.markdown("- **Production & Reserves**: U.S. Energy Information Administration (EIA), OPEC Annual Statistical Bulletin, World Bank Open Data")
+    st.markdown("- **Brent Crude Prices**: Yahoo Finance (Ticker: `BZ=F`)")
+    st.markdown("- **Country Codes**: ISO 3166-1 alpha-3 standard")
+    
+    st.markdown("### 📐 Methodology")
+    st.markdown("- **Units**: Production in thousand barrels per day (kbpd); Reserves in billion barrels (Bbbl)")
+    st.markdown("- **R/P Ratio**: `(Reserves_Bbbl × 1000) / Annual_Production_Mbbl`")
+    st.markdown("- **Forecasting**: LSTM Deep Learning, ARIMA Statistical, and Linear Regression models")
+    st.markdown("- **Correlation**: Pearson coefficient between aggregated regional production and monthly Brent spot prices")
+    st.markdown("- **Model Evaluation**: RMSE and MAPE metrics on 12-month holdout validation")
+    
+    st.markdown("### 📅 Last Updated")
+    st.code(datetime.now().strftime('%Y-%m-%d %H:%M UTC'))
+    
+    st.markdown("### 📖 Suggested Citation (APA)")
+    citation = f"Fumbuka, G. J. (2026). Global Oil Analytics Dashboard v2.3 [Web application]. INTI International University. https://global-oil-dashboard-cobdnhgtjbkuplybfqncmq.streamlit.app"
+    st.code(citation, language=None)
+    
+    st.markdown("### ⚠️ Limitations")
+    st.markdown("Simulated production data is used for demonstration with realistic patterns. Forecasts represent ML/statistical projections and do not account for geopolitical shocks, OPEC+ policy changes, or structural market shifts. For production deployment, integrate live EIA/API endpoints.")
+
+st.sidebar.markdown("---")
+
+# 🎛️ CONTROLS
+st.sidebar.subheader("🎛️ Controls")
+
+# Region Selector
+region = st.sidebar.selectbox(
+    "Select Region",
+    ["Global", "Africa", "Middle East", "Americas", "Asia", "Europe"],
+    index=0,
+    help="Filter countries by geographic region"
+)
+
+st.sidebar.markdown("---")
+
+# Country Selection
+st.sidebar.subheader("🌍 Select Countries")
+
+all_countries = sorted(prod_df['Country'].unique())
+
+if region == "Global":
+    available_countries = all_countries
+elif region == "Africa":
+    available_countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]
+elif region == "Middle East":
+    available_countries = ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "UAE"]
+elif region == "Americas":
+    available_countries = ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]
+elif region == "Asia":
+    available_countries = ["China", "Japan", "India", "Indonesia"]
+elif region == "Europe":
+    available_countries = ["Russia", "Norway", "United Kingdom"]
+else:
+    available_countries = all_countries
+
+available_countries = [c for c in available_countries if c in all_countries]
+default_selection = ["Nigeria", "USA", "Saudi Arabia", "Russia", "China"]
+default_selection = [c for c in default_selection if c in available_countries]
+
+selected_countries = st.sidebar.multiselect(
+    "Choose countries:",
+    options=available_countries,
+    default=default_selection[:3] if default_selection else [],
+    help="Select one or more countries to analyze"
+)
+
+st.sidebar.markdown("---")
+
+# Forecast Options
+show_fc = st.sidebar.checkbox("📈 Show 12-Month Forecast", value=True, help="Enable forecasting features")
+
+st.sidebar.markdown("---")
+
+# User Guide
+with st.sidebar.expander("❓ User Guide & Instructions"):
+    st.markdown("""
+    ### 📖 Quick Start
+    
+    1. **Select Region** from dropdown
+    2. **Choose Countries** to analyze
+    3. **Enable Forecast** for predictions
+    4. **Explore Tabs**: Map, Forecast, Correlation, Alerts
+    
+    ### 📊 Tabs Explained
+    
+    **🗺️ Map:** Geographic production visualization
+    
+    **📈 Forecast:** ML forecasting (select 1 country)
+    - LSTM, ARIMA, or Linear models
+    - View 12-month predictions
+    - Compare model accuracy
+    
+    **💰 Correlation:** Production vs Price analysis
+    
+    **⚠️ Alerts & Export:** Data downloads
+    
+    ### 💡 Tips
+    
+    - ARIMA best for stable trends (0.45% MAPE)
+    - LSTM for complex patterns
+    - Click chart legend to toggle series
+    - Use Plotly camera icon for screenshots
+    
+    ---
+    **Questions?** Contact your research supervisor
+    """)
+
+st.sidebar.markdown("---")
+
+# Footer
+st.sidebar.markdown(f"""
+<div style="text-align: center; color: #718096; font-size: 11px; margin-top: 20px;">
+    <b>Global Oil Analytics Dashboard v2.3</b><br>
+    DBA Research Project • 2026<br>
+    INTI International University
+</div>
+""", unsafe_allow_html=True)
 
 
 # --- MAIN CONTENT ---
