@@ -239,6 +239,7 @@ def forecast_arima(df_country, steps=12):
     except:
         return None, None
 
+
 def forecast_lstm(df_country, steps=12):
     """LSTM-based forecasting for time series."""
     try:
@@ -506,6 +507,7 @@ with tab2:
             # ... rest of Model Performance code remains the same ...
             
             # === MODEL PERFORMANCE (INSIDE TAB2) ===
+            # === MODEL PERFORMANCE METRICS ===
             st.subheader("📊 Model Performance (Last 12 Months)")
             
             actual_data = country_df[['Date', 'Production_kbpd']].copy().sort_values('Date')
@@ -519,6 +521,140 @@ with tab2:
             
             metrics = []
             
+            # 1. LSTM Performance
+            try:
+                from tensorflow import keras
+                from tensorflow.keras import layers
+                from sklearn.preprocessing import MinMaxScaler
+                from sklearn.metrics import mean_squared_error
+                
+                if len(train_data) >= 60:  # LSTM needs enough data
+                    train_values = train_data['Production_kbpd'].values.reshape(-1, 1)
+                    test_values = test_data['Production_kbpd'].values.reshape(-1, 1)
+                    
+                    scaler = MinMaxScaler()
+                    train_scaled = scaler.fit_transform(train_values)
+                    test_scaled = scaler.transform(test_values)
+                    
+                    # Create sequences for LSTM
+                    seq_length = 60
+                    X_test_seq = []
+                    for i in range(len(test_scaled)):
+                        if i + seq_length <= len(train_scaled) + i:
+                            start_idx = max(0, len(train_scaled) - seq_length + i)
+                            seq = np.vstack([train_scaled[start_idx:], test_scaled[:i]])[-seq_length:]
+                            X_test_seq.append(seq)
+                    
+                    if len(X_test_seq) == len(test_scaled) and len(X_test_seq) > 0:
+                        X_test_seq = np.array(X_test_seq).reshape(-1, seq_length, 1)
+                        
+                        # Quick LSTM model
+                        model = keras.Sequential([
+                            layers.LSTM(50, input_shape=(seq_length, 1)),
+                            layers.Dense(1)
+                        ])
+                        model.compile(optimizer='adam', loss='mse')
+                        
+                        # Train on recent data
+                        recent_data = np.vstack([train_scaled[-100:], test_scaled[:-12]])
+                        X_train_lstm, y_train_lstm = [], []
+                        for i in range(len(recent_data) - seq_length):
+                            X_train_lstm.append(recent_data[i:i+seq_length])
+                            y_train_lstm.append(recent_data[i+seq_length])
+                        
+                        if len(X_train_lstm) > 10:
+                            X_train_lstm = np.array(X_train_lstm)
+                            y_train_lstm = np.array(y_train_lstm)
+                            
+                            model.fit(X_train_lstm, y_train_lstm, epochs=20, verbose=0)
+                            
+                            # Predict
+                            pred_lstm = model.predict(X_test_seq, verbose=0)
+                            pred_lstm = scaler.inverse_transform(pred_lstm)
+                            
+                            rmse_lstm = np.sqrt(mean_squared_error(test_values, pred_lstm))
+                            mape_lstm = np.mean(np.abs((test_values - pred_lstm) / test_values)) * 100
+                            
+                            metrics.append({
+                                "Model": "LSTM",
+                                "RMSE": f"{rmse_lstm:,.2f}",
+                                "MAPE": f"{mape_lstm:.2f}%"
+                            })
+                        else:
+                            metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
+                    else:
+                        metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
+                else:
+                    metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
+            except Exception as e:
+                metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
+            
+            # 2. Linear Regression Performance
+            try:
+                from sklearn.linear_model import LinearRegression
+                from sklearn.metrics import mean_squared_error
+                
+                if len(train_data) > 0:
+                    X_train = np.arange(len(train_data)).reshape(-1, 1)
+                    y_train = train_data['Production_kbpd'].values
+                    X_test = np.arange(len(train_data), len(train_data) + len(test_data)).reshape(-1, 1)
+                    y_test = test_data['Production_kbpd'].values
+                    
+                    model_lr = LinearRegression()
+                    model_lr.fit(X_train, y_train)
+                    y_pred_lr = model_lr.predict(X_test)
+                    
+                    rmse_lr = np.sqrt(mean_squared_error(y_test, y_pred_lr))
+                    mape_lr = np.mean(np.abs((y_test - y_pred_lr) / y_test)) * 100
+                    
+                    metrics.append({
+                        "Model": "Linear",
+                        "RMSE": f"{rmse_lr:,.2f}",
+                        "MAPE": f"{mape_lr:.2f}%"
+                    })
+            except:
+                metrics.append({"Model": "Linear", "RMSE": "N/A", "MAPE": "N/A"})
+            
+            # 3. ARIMA Performance
+            try:
+                from statsmodels.tsa.arima.model import ARIMA
+                from sklearn.metrics import mean_squared_error
+                
+                if len(train_data) > 0:
+                    train_values = train_data['Production_kbpd'].values
+                    test_values = test_data['Production_kbpd'].values
+                    
+                    try:
+                        model_a = ARIMA(train_values, order=(1, 1, 1))
+                    except:
+                        model_a = ARIMA(train_values, order=(1, 0, 1))
+                    
+                    fitted_a = model_a.fit()
+                    forecast_a = fitted_a.forecast(steps=len(test_values))
+                    
+                    rmse_a = np.sqrt(mean_squared_error(test_values, forecast_a))
+                    mape_a = np.mean(np.abs((test_values - forecast_a) / test_values)) * 100
+                    
+                    metrics.append({
+                        "Model": "ARIMA",
+                        "RMSE": f"{rmse_a:,.2f}",
+                        "MAPE": f"{mape_a:.2f}%"
+                    })
+            except:
+                metrics.append({"Model": "ARIMA", "RMSE": "N/A", "MAPE": "N/A"})
+            
+            # Display metrics table
+            metrics_df = pd.DataFrame(metrics)
+            st.dataframe(metrics_df, width="stretch", hide_index=True)
+            
+            # Find best model
+            valid_metrics = metrics_df[metrics_df['RMSE'] != 'N/A']
+            if not valid_metrics.empty:
+                valid_metrics['RMSE_numeric'] = valid_metrics['RMSE'].str.replace(',', '').astype(float)
+                best_model_row = valid_metrics.loc[valid_metrics['RMSE_numeric'].idxmin()]
+                
+                st.success(f"🏆 **Best Model:** {best_model_row['Model']} (RMSE: {best_model_row['RMSE']}, MAPE: {best_model_row['MAPE']})")
+                st.info("**Interpretation:** RMSE = absolute error (kbpd) | MAPE = % error (lower is better) | <10% MAPE is excellent")            
             # Linear
             try:
                 from sklearn.linear_model import LinearRegression
