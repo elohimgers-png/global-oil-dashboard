@@ -37,7 +37,7 @@ def load_profile():
         with open(profile_path, "rb") as f:
             data = f.read()
             encoded = base64.b64encode(data).decode()
-            return f'<img src="data:image/jpeg;base64,{encoded}" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:3px solid #1a365d;">'
+            return f'<img src="image/jpeg;base64,{encoded}" style="width:120px;height:120px;border-radius:50%;object-fit:cover;border:3px solid #1a365d;">'
     return '<div style="width:120px;height:120px;border-radius:50%;background:#e2e8f0;display:flex;align-items:center;justify-content:center;color:#718096;font-size:14px;">👤</div>'
 
 def generate_pdf_report(title, metrics_df):
@@ -89,7 +89,6 @@ def convert_fig_to_png(fig):
 @st.cache_data(ttl=3600)
 def load_production_data():
     """Load oil production data - using recent dates to match Yahoo Finance prices."""
-    # FALLBACK: Generate synthetic production data with RECENT DATES (2019-2024)
     dates = pd.date_range("2019-01-01", "2024-12-01", freq="MS")
     countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt", 
                  "Saudi Arabia", "Russia", "USA", "Canada", "China", "Brazil"]
@@ -158,7 +157,6 @@ def load_prices():
                     return df
         except:
             continue
-    # Fallback data
     dates = pd.date_range(start="2018-01-01", end="2024-12-01", freq="MS")
     np.random.seed(42)
     base_price, volatility = 75.0, 15.0
@@ -186,34 +184,82 @@ def forecast_simple(df_country, steps=12):
     fc_df = pd.DataFrame({"Date": future_dates, "Forecast": fc_vals, "Type": "Forecast"})
     return pd.concat([hist_df, fc_df])
 
-def forecast_prophet(df_country, steps=12):
+def forecast_lstm(df_country, steps=12):
+    """LSTM-based forecasting for time series."""
     try:
-        from prophet import Prophet
-        import logging
-        logging.getLogger("prophet").setLevel(logging.ERROR)
-        logging.getLogger("cmdstanpy").setLevel(logging.ERROR)
+        from tensorflow import keras
+        from tensorflow.keras import layers
+        from sklearn.preprocessing import MinMaxScaler
         
-        df = df_country[["Date", "Production_kbpd"]].copy()
-        df.columns = ['ds', 'y']
+        df = df_country[['Date', 'Production_kbpd']].copy()
+        df = df.sort_values('Date')
         
-        if len(df) < 10:
+        scaler = MinMaxScaler()
+        scaled_data = scaler.fit_transform(df[['Production_kbpd']])
+        
+        seq_length = 60
+        X, y = [], []
+        for i in range(len(scaled_data) - seq_length):
+            X.append(scaled_data[i:i+seq_length, 0])
+            y.append(scaled_data[i+seq_length, 0])
+        
+        X, y = np.array(X), np.array(y)
+        
+        if len(X) < 10:
             return None, None, None
         
-        model = Prophet(yearly_seasonality=True, weekly_seasonality=False, daily_seasonality=False, interval_width=0.95)
-        model.fit(df, show_progress=False)
+        train_size = int(len(X) * 0.8)
+        X_train, X_test = X[:train_size], X[train_size:]
+        y_train, y_test = y[:train_size], y[train_size:]
         
-        future = model.make_future_dataframe(periods=steps, freq='MS')
-        forecast = model.predict(future)
+        X_train = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
+        X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
         
-        viz_df = pd.DataFrame({
-            'Date': forecast['ds'],
-            'Forecast': forecast['yhat'],
-            'Lower_Bound': forecast['yhat_lower'],
-            'Upper_Bound': forecast['yhat_upper'],
-            'Type': ['Historical' if d < df['ds'].max() else 'Forecast' for d in forecast['ds']]
+        model = keras.Sequential([
+            layers.LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], 1)),
+            layers.LSTM(50),
+            layers.Dense(1)
+        ])
+        
+        model.compile(optimizer='adam', loss='mean_squared_error')
+        model.fit(X_train, y_train, epochs=50, batch_size=32, verbose=0)
+        
+        test_predict = model.predict(X_test, verbose=0)
+        test_predict = scaler.inverse_transform(test_predict)
+        y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
+        
+        from sklearn.metrics import mean_squared_error
+        rmse = np.sqrt(mean_squared_error(y_test_actual, test_predict))
+        mape = np.mean(np.abs((y_test_actual - test_predict) / y_test_actual)) * 100
+        
+        last_sequence = scaled_data[-seq_length:]
+        future_predictions = []
+        
+        for _ in range(steps):
+            pred = model.predict(last_sequence.reshape(1, seq_length, 1), verbose=0)
+            future_predictions.append(pred[0, 0])
+            last_sequence = np.vstack([last_sequence[1:], pred])
+        
+        future_predictions = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
+        
+        last_date = df['Date'].max()
+        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=30), periods=steps, freq='MS')
+        
+        hist_df = df.rename(columns={'Production_kbpd': 'Forecast'})
+        hist_df['Type'] = 'Historical'
+        
+        fc_df = pd.DataFrame({
+            'Date': future_dates,
+            'Forecast': future_predictions.flatten(),
+            'Type': 'Forecast'
         })
-        return viz_df, model, forecast
-    except:
+        
+        fc_df['Lower_Bound'] = fc_df['Forecast'] * 0.95
+        fc_df['Upper_Bound'] = fc_df['Forecast'] * 1.05
+        
+        return pd.concat([hist_df, fc_df]), rmse, mape
+        
+    except Exception as e:
         return None, None, None
 
 def forecast_arima(df_country, steps=12):
@@ -239,96 +285,6 @@ def forecast_arima(df_country, steps=12):
     except:
         return None, None
 
-
-def forecast_lstm(df_country, steps=12):
-    """LSTM-based forecasting for time series."""
-    try:
-        from tensorflow import keras
-        from tensorflow.keras import layers
-        from sklearn.preprocessing import MinMaxScaler
-        import warnings
-        warnings.filterwarnings("ignore")
-        
-        # Prepare data
-        df = df_country[['Date', 'Production_kbpd']].copy()
-        df = df.sort_values('Date')
-        
-        # Scale data
-        scaler = MinMaxScaler()
-        scaled_data = scaler.fit_transform(df[['Production_kbpd']])
-        
-        # Create sequences (use last 60 days to predict next)
-        seq_length = 60
-        X, y = [], []
-        for i in range(len(scaled_data) - seq_length):
-            X.append(scaled_data[i:i+seq_length, 0])
-            y.append(scaled_data[i+seq_length, 0])
-        
-        X, y = np.array(X), np.array(y)
-        
-        # Split train/test
-        train_size = int(len(X) * 0.8)
-        X_train, X_test = X[:train_size], X[train_size:]
-        y_train, y_test = y[:train_size], y[train_size:]
-        
-        # Reshape for LSTM
-        X_train = X_train.reshape((X_train.shape[0], X_train.shape[1], 1))
-        X_test = X_test.reshape((X_test.shape[0], X_test.shape[1], 1))
-        
-        # Build LSTM model
-        model = keras.Sequential([
-            layers.LSTM(50, return_sequences=True, input_shape=(X_train.shape[1], 1)),
-            layers.LSTM(50),
-            layers.Dense(1)
-        ])
-        
-        model.compile(optimizer='adam', loss='mean_squared_error')
-        model.fit(X_train, y_train, epochs=50, batch_size=32, verbose=0)
-        
-        # Evaluate on test set
-        test_predict = model.predict(X_test, verbose=0)
-        test_predict = scaler.inverse_transform(test_predict)
-        y_test_actual = scaler.inverse_transform(y_test.reshape(-1, 1))
-        
-        # Calculate RMSE and MAPE
-        from sklearn.metrics import mean_squared_error
-        rmse = np.sqrt(mean_squared_error(y_test_actual, test_predict))
-        mape = np.mean(np.abs((y_test_actual - test_predict) / y_test_actual)) * 100
-        
-        # Forecast future
-        last_sequence = scaled_data[-seq_length:]
-        future_predictions = []
-        
-        for _ in range(steps):
-            pred = model.predict(last_sequence.reshape(1, seq_length, 1), verbose=0)
-            future_predictions.append(pred[0, 0])
-            last_sequence = np.vstack([last_sequence[1:], pred])
-        
-        future_predictions = scaler.inverse_transform(np.array(future_predictions).reshape(-1, 1))
-        
-        # Create forecast dataframe
-        last_date = df['Date'].max()
-        future_dates = pd.date_range(start=last_date + pd.Timedelta(days=30), periods=steps, freq='MS')
-        
-        hist_df = df.rename(columns={'Production_kbpd': 'Forecast'})
-        hist_df['Type'] = 'Historical'
-        
-        fc_df = pd.DataFrame({
-            'Date': future_dates,
-            'Forecast': future_predictions.flatten(),
-            'Type': 'Forecast'
-        })
-        
-        # Add confidence intervals (approximate)
-        fc_df['Lower_Bound'] = fc_df['Forecast'] * 0.95
-        fc_df['Upper_Bound'] = fc_df['Forecast'] * 1.05
-        
-        return pd.concat([hist_df, fc_df]), rmse, mape
-        
-    except Exception as e:
-        st.error(f"LSTM Error: {str(e)[:200]}")
-        return None, None, None
-
 # --- LOAD DATA FIRST ---
 prod_df = load_production_data()
 price_df = load_prices()
@@ -347,7 +303,7 @@ with st.sidebar:
         st.markdown("""
         **Global Oil Analytics Dashboard v2.3** provides:
         - Real-time oil production monitoring
-        - ML-powered forecasting with Prophet
+        - ML-powered forecasting with LSTM
         - Price correlation analysis
         - Interactive visualizations
         - Mobile-optimized interface
@@ -442,72 +398,33 @@ with tab2:
         
         with st.spinner(f"⏳ Training {model_choice}..."):
             fc_df = None
-            forecast_error = None
-            
             if model_choice == "LSTM (Deep Learning)":
                 fc_df, _, _ = forecast_lstm(country_df)
             elif model_choice == "ARIMA (Statistical)":
                 fc_df, _ = forecast_arima(country_df)
             else:
                 fc_df = forecast_simple(country_df)
-
-
         
-        # Show error message if forecast failed
-        if forecast_error:
-            st.warning(f"⚠️ {forecast_error}")
-            st.info("✅ **ARIMA is working perfectly** (0.45% MAPE) - try selecting it above!")
-        
-        # Only show chart if we have data
-        if fc_df is not None and not fc_df.empty and not forecast_error:
+        if fc_df is not None and not fc_df.empty:
             hist = fc_df[fc_df['Type'] == 'Historical']
             fc = fc_df[fc_df['Type'] == 'Forecast']
             
             fig = go.Figure()
             if not hist.empty:
-                fig.add_trace(go.Scatter(
-                    x=hist['Date'], y=hist['Forecast'],
-                    mode='lines', name='Historical',
-                    line=dict(color='#1f77b4', width=2)
-                ))
+                fig.add_trace(go.Scatter(x=hist['Date'], y=hist['Forecast'], mode='lines', name='Historical', line=dict(color='#1f77b4', width=2)))
             if not fc.empty:
-                fig.add_trace(go.Scatter(
-                    x=fc['Date'], y=fc['Forecast'],
-                    mode='lines', name=f'{model_choice} Forecast',
-                    line=dict(color='#ff7f0e', width=3, dash='dot')
-                ))
+                fig.add_trace(go.Scatter(x=fc['Date'], y=fc['Forecast'], mode='lines', name=f'{model_choice} Forecast', line=dict(color='#ff7f0e', width=3, dash='dot')))
                 if 'Lower_Bound' in fc.columns and not fc['Lower_Bound'].isna().all():
-                    fig.add_trace(go.Scatter(
-                        x=pd.concat([fc['Date'], fc['Date'][::-1]]),
-                        y=pd.concat([fc['Upper_Bound'], fc['Lower_Bound'][::-1]]),
-                        fill='toself',
-                        fillcolor='rgba(255,127,14,0.2)',
-                        line=dict(color='rgba(255,255,255,0)'),
-                        name='95% CI'
-                    ))
+                    fig.add_trace(go.Scatter(x=pd.concat([fc['Date'], fc['Date'][::-1]]), y=pd.concat([fc['Upper_Bound'], fc['Lower_Bound'][::-1]]), fill='toself', fillcolor='rgba(255,127,14,0.2)', line=dict(color='rgba(255,255,255,0)'), name='95% CI'))
             
-            fig.update_layout(
-                title=f"{model_choice} Forecast for {country_name}",
-                xaxis_title="Month",
-                yaxis_title="Production (kbpd)",
-                height=500,
-                hovermode="x unified"
-            )
+            fig.update_layout(title=f"{model_choice} Forecast for {country_name}", xaxis_title="Month", yaxis_title="Production (kbpd)", height=500, hovermode="x unified")
             st.plotly_chart(fig, width="stretch")
             
             forecast_png = convert_fig_to_png(fig)
             if forecast_png is not None:
-                st.download_button(
-                    label="📸 Download Forecast Chart as PNG",
-                    data=forecast_png,
-                    file_name=f"forecast_{country_name}_{datetime.now().strftime('%Y%m%d')}.png",
-                    mime="image/png"
-                )
+                st.download_button(label="📸 Download Forecast Chart as PNG", data=forecast_png, file_name=f"forecast_{country_name}_{datetime.now().strftime('%Y%m%d')}.png", mime="image/png")
             
-            # ... rest of Model Performance code remains the same ...
-            
-            # === MODEL PERFORMANCE (INSIDE TAB2) ===
-            # === MODEL PERFORMANCE METRICS ===
+            # === MODEL PERFORMANCE ===
             st.subheader("📊 Model Performance (Last 12 Months)")
             
             actual_data = country_df[['Date', 'Production_kbpd']].copy().sort_values('Date')
@@ -521,140 +438,6 @@ with tab2:
             
             metrics = []
             
-            # 1. LSTM Performance
-            try:
-                from tensorflow import keras
-                from tensorflow.keras import layers
-                from sklearn.preprocessing import MinMaxScaler
-                from sklearn.metrics import mean_squared_error
-                
-                if len(train_data) >= 60:  # LSTM needs enough data
-                    train_values = train_data['Production_kbpd'].values.reshape(-1, 1)
-                    test_values = test_data['Production_kbpd'].values.reshape(-1, 1)
-                    
-                    scaler = MinMaxScaler()
-                    train_scaled = scaler.fit_transform(train_values)
-                    test_scaled = scaler.transform(test_values)
-                    
-                    # Create sequences for LSTM
-                    seq_length = 60
-                    X_test_seq = []
-                    for i in range(len(test_scaled)):
-                        if i + seq_length <= len(train_scaled) + i:
-                            start_idx = max(0, len(train_scaled) - seq_length + i)
-                            seq = np.vstack([train_scaled[start_idx:], test_scaled[:i]])[-seq_length:]
-                            X_test_seq.append(seq)
-                    
-                    if len(X_test_seq) == len(test_scaled) and len(X_test_seq) > 0:
-                        X_test_seq = np.array(X_test_seq).reshape(-1, seq_length, 1)
-                        
-                        # Quick LSTM model
-                        model = keras.Sequential([
-                            layers.LSTM(50, input_shape=(seq_length, 1)),
-                            layers.Dense(1)
-                        ])
-                        model.compile(optimizer='adam', loss='mse')
-                        
-                        # Train on recent data
-                        recent_data = np.vstack([train_scaled[-100:], test_scaled[:-12]])
-                        X_train_lstm, y_train_lstm = [], []
-                        for i in range(len(recent_data) - seq_length):
-                            X_train_lstm.append(recent_data[i:i+seq_length])
-                            y_train_lstm.append(recent_data[i+seq_length])
-                        
-                        if len(X_train_lstm) > 10:
-                            X_train_lstm = np.array(X_train_lstm)
-                            y_train_lstm = np.array(y_train_lstm)
-                            
-                            model.fit(X_train_lstm, y_train_lstm, epochs=20, verbose=0)
-                            
-                            # Predict
-                            pred_lstm = model.predict(X_test_seq, verbose=0)
-                            pred_lstm = scaler.inverse_transform(pred_lstm)
-                            
-                            rmse_lstm = np.sqrt(mean_squared_error(test_values, pred_lstm))
-                            mape_lstm = np.mean(np.abs((test_values - pred_lstm) / test_values)) * 100
-                            
-                            metrics.append({
-                                "Model": "LSTM",
-                                "RMSE": f"{rmse_lstm:,.2f}",
-                                "MAPE": f"{mape_lstm:.2f}%"
-                            })
-                        else:
-                            metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
-                    else:
-                        metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
-                else:
-                    metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
-            except Exception as e:
-                metrics.append({"Model": "LSTM", "RMSE": "N/A", "MAPE": "N/A"})
-            
-            # 2. Linear Regression Performance
-            try:
-                from sklearn.linear_model import LinearRegression
-                from sklearn.metrics import mean_squared_error
-                
-                if len(train_data) > 0:
-                    X_train = np.arange(len(train_data)).reshape(-1, 1)
-                    y_train = train_data['Production_kbpd'].values
-                    X_test = np.arange(len(train_data), len(train_data) + len(test_data)).reshape(-1, 1)
-                    y_test = test_data['Production_kbpd'].values
-                    
-                    model_lr = LinearRegression()
-                    model_lr.fit(X_train, y_train)
-                    y_pred_lr = model_lr.predict(X_test)
-                    
-                    rmse_lr = np.sqrt(mean_squared_error(y_test, y_pred_lr))
-                    mape_lr = np.mean(np.abs((y_test - y_pred_lr) / y_test)) * 100
-                    
-                    metrics.append({
-                        "Model": "Linear",
-                        "RMSE": f"{rmse_lr:,.2f}",
-                        "MAPE": f"{mape_lr:.2f}%"
-                    })
-            except:
-                metrics.append({"Model": "Linear", "RMSE": "N/A", "MAPE": "N/A"})
-            
-            # 3. ARIMA Performance
-            try:
-                from statsmodels.tsa.arima.model import ARIMA
-                from sklearn.metrics import mean_squared_error
-                
-                if len(train_data) > 0:
-                    train_values = train_data['Production_kbpd'].values
-                    test_values = test_data['Production_kbpd'].values
-                    
-                    try:
-                        model_a = ARIMA(train_values, order=(1, 1, 1))
-                    except:
-                        model_a = ARIMA(train_values, order=(1, 0, 1))
-                    
-                    fitted_a = model_a.fit()
-                    forecast_a = fitted_a.forecast(steps=len(test_values))
-                    
-                    rmse_a = np.sqrt(mean_squared_error(test_values, forecast_a))
-                    mape_a = np.mean(np.abs((test_values - forecast_a) / test_values)) * 100
-                    
-                    metrics.append({
-                        "Model": "ARIMA",
-                        "RMSE": f"{rmse_a:,.2f}",
-                        "MAPE": f"{mape_a:.2f}%"
-                    })
-            except:
-                metrics.append({"Model": "ARIMA", "RMSE": "N/A", "MAPE": "N/A"})
-            
-            # Display metrics table
-            metrics_df = pd.DataFrame(metrics)
-            st.dataframe(metrics_df, width="stretch", hide_index=True)
-            
-            # Find best model
-            valid_metrics = metrics_df[metrics_df['RMSE'] != 'N/A']
-            if not valid_metrics.empty:
-                valid_metrics['RMSE_numeric'] = valid_metrics['RMSE'].str.replace(',', '').astype(float)
-                best_model_row = valid_metrics.loc[valid_metrics['RMSE_numeric'].idxmin()]
-                
-                st.success(f"🏆 **Best Model:** {best_model_row['Model']} (RMSE: {best_model_row['RMSE']}, MAPE: {best_model_row['MAPE']})")
-                st.info("**Interpretation:** RMSE = absolute error (kbpd) | MAPE = % error (lower is better) | <10% MAPE is excellent")            
             # Linear
             try:
                 from sklearn.linear_model import LinearRegression
@@ -672,25 +455,6 @@ with tab2:
                     metrics.append({"Model": "Linear", "RMSE": f"{rmse_lr:,.2f}", "MAPE": f"{mape_lr:.2f}%"})
             except:
                 metrics.append({"Model": "Linear", "RMSE": "N/A", "MAPE": "N/A"})
-            
-            # Prophet
-            try:
-                from prophet import Prophet
-                from sklearn.metrics import mean_squared_error
-                if len(train_data) > 0:
-                    df_p = train_data.rename(columns={'Date': 'ds', 'Production_kbpd': 'y'})
-                    model_p = Prophet(yearly_seasonality=False, weekly_seasonality=False, daily_seasonality=False)
-                    model_p.fit(df_p)
-                    future_p = model_p.make_future_dataframe(periods=len(test_data), freq='MS')
-                    forecast_p = model_p.predict(future_p)
-                    pred_p = forecast_p.tail(len(test_data))['yhat'].values
-                    y_test = test_data['Production_kbpd'].values
-                    if len(pred_p) == len(y_test):
-                        rmse_p = np.sqrt(mean_squared_error(y_test, pred_p))
-                        mape_p = np.mean(np.abs((y_test - pred_p) / y_test)) * 100
-                        metrics.append({"Model": "Prophet", "RMSE": f"{rmse_p:,.2f}", "MAPE": f"{mape_p:.2f}%"})
-            except:
-                metrics.append({"Model": "Prophet", "RMSE": "N/A", "MAPE": "N/A"})
             
             # ARIMA
             try:
@@ -719,7 +483,7 @@ with tab2:
                 valid_metrics['RMSE_numeric'] = valid_metrics['RMSE'].str.replace(',', '').astype(float)
                 best_model_row = valid_metrics.loc[valid_metrics['RMSE_numeric'].idxmin()]
                 st.success(f"🏆 **Best Model:** {best_model_row['Model']} (RMSE: {best_model_row['RMSE']}, MAPE: {best_model_row['MAPE']})")
-                st.info("**Interpretation:** RMSE = absolute error (kbpd) | MAPE = % error (lower is better) | <10% MAPE is excellent for research")
+                st.info("**Interpretation:** RMSE = absolute error (kbpd) | MAPE = % error (lower is better) | <10% MAPE is excellent")
     
     elif len(selected_countries) != 1:
         st.warning("⚠️ Select exactly ONE country for forecasting")
@@ -784,6 +548,4 @@ with tab4:
     with col2:
         csv_prices = price_df.to_csv(index=False).encode('utf-8')
         st.download_button(label="📥 Price Data", data=csv_prices, file_name=f"prices_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
-
-
 
