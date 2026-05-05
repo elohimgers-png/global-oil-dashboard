@@ -68,16 +68,26 @@ def generate_pdf_report(title, metrics_df):
     pdf.cell(0, 10, "Global Oil Analytics Dashboard | Gerson Japhet Fumbuka | INTI International University", ln=True, align='C')
     return pdf.output(dest='S').encode('latin1')
 
-def convert_fig_to_png(fig):
-    """Convert Plotly figure to PNG bytes."""
+def convert_fig_to_png(fig, filename="chart"):
+    """Convert Plotly figure to PNG using Plotly's native export."""
     try:
         import plotly.io as pio
-        # Try to use kaleido (works on Streamlit Cloud)
-        img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2)
+        import base64
+        from io import BytesIO
+        
+        # Convert to PNG bytes
+        img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2, engine="kaleido")
         return img_bytes
-    except Exception as e:
-        # If kaleido fails, return None (user can use Plotly's built-in camera)
-        return None
+        
+    except:
+        try:
+            # Fallback: use plotly's default renderer
+            import plotly.io as pio
+            img_bytes = pio.to_image(fig, format="png", width=1200, height=600, scale=2)
+            return img_bytes
+        except:
+            # If all fails, return None
+            return None
 
 
 # --- DATA LOADING FUNCTIONS ---
