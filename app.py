@@ -175,30 +175,36 @@ def _load_simulated_production_data():
             data.append({"Country": c, "Date": d, "Production_kbpd": prod, "Region": get_region_for_country(c)})
     return pd.DataFrame(data)
 
+
 @st.cache_data(ttl=3600)
 def load_production_data(api_key=None):
-    """
-    Main data loading function with fallback to simulated data.
-    """
-    if api_key and len(api_key.strip()) > 0:
+    """Main loader: tries EIA API first, falls back to simulated data."""
+    if api_key and len(api_key.strip()) >= 10:
         try:
-            with st.spinner(" Fetching live data from EIA API..."):
-                df = load_eia_production_data(api_key)
-                st.success(f"✅ Loaded {len(df['Country'].unique())} countries from EIA ({len(df)} monthly records)")
-                return df
+            with st.spinner("🌐 Fetching live EIA production data..."):
+                return load_eia_production_data(api_key)
         except Exception as e:
-            st.error(f"❌ EIA API failed: {str(e)[:200]}")
-            st.info("ℹ️ Falling back to simulated data for demonstration")
-    
-    # Fallback to simulated data (your existing function)
-    return load_simulated_production_data()
+            st.error(f"❌ EIA API Error: {str(e)[:150]}")
+            st.info("ℹ️ Falling back to simulated data for continuity")
+    # Fallback to your existing simulated generator
+    return _load_simulated_production_data()
 
-def load_simulated_production_data():
-    """Your existing simulated data function (keep this as fallback)."""
-    # ... [paste your existing load_production_data function code here] ...
-    # This is the function you already have that generates synthetic data
-    pass  # Replace with your actual simulated data code
-
+def _load_simulated_production_data():
+    """Your original simulated data function (keeps dashboard working offline)."""
+    dates = pd.date_range("2019-01-01", "2024-12-01", freq="MS")
+    countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt", 
+                 "Saudi Arabia", "Russia", "USA", "Canada", "China", "Brazil"]
+    base_prod = {"Nigeria": 1800, "Angola": 1400, "Algeria": 1000, "Libya": 1200, "Egypt": 600,
+                 "Saudi Arabia": 10500, "Russia": 11200, "USA": 19000, "Canada": 5500, 
+                 "China": 3800, "Brazil": 3000}
+    data = []
+    np.random.seed(42)
+    for c in countries:
+        base = base_prod.get(c, 1000)
+        for i, d in enumerate(dates):
+            prod = max(0, base + 0.5*i + 50*np.sin(d.month/12*2*np.pi) + np.random.normal(0, 100))
+            data.append({"Country": c, "Date": d, "Production_kbpd": prod, "Region": get_region_for_country(c)})
+    return pd.DataFrame(data)
 @st.cache_data(ttl=3600)
 def load_prices():
     """Load Brent crude oil prices from Yahoo Finance."""
@@ -739,5 +745,3 @@ with tab5:
                 - Recommended for exploratory analysis only; use official EIA/OPEC data for policy decisions
                 - See: Kilian (2009) AER, Hamilton (2009) Brookings Papers, IEA (2023) Oil Market Report
                 """)
-
-
