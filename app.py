@@ -124,8 +124,7 @@ def load_eia_csv_data():
     import os
     import re
     
-    csv_path = "eia_production.csv"
-    
+    csv_path = "clean_production.csv"    
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"EIA CSV not found: {csv_path}")
     
