@@ -120,52 +120,78 @@ def get_region_for_country(country):
 
 @st.cache_data(ttl=3600)
 def load_eia_csv_data():
-    """Load production data from EIA CSV file."""
+    """Load and parse EIA CSV file (wide format)."""
     import os
+    import re
     
     csv_path = "eia_production.csv"
     
     if not os.path.exists(csv_path):
         raise FileNotFoundError(f"EIA CSV not found: {csv_path}")
     
-    # Read CSV
-    df = pd.read_csv(csv_path)
+    # Read CSV - skip empty rows
+    df_raw = pd.read_csv(csv_path, header=None, skiprows=lambda x: x < 1)
     
-    # Standardize column names
-    df.columns = df.columns.str.strip().str.lower()
+    # Country code mapping from EIA series IDs
+    country_map = {
+        "NG": "Nigeria", "AO": "Angola", "AG": "Algeria", "LY": "Libya", "EG": "Egypt",
+        "SA": "Saudi Arabia", "IR": "Iran", "IZ": "Iraq", "KU": "Kuwait", "AE": "United Arab Emirates",
+        "RS": "Russia", "NO": "Norway", "UK": "United Kingdom",
+        "US": "USA", "CA": "Canada", "BR": "Brazil", "MX": "Mexico", "VE": "Venezuela",
+        "CH": "China", "JA": "Japan", "IN": "India", "ID": "Indonesia"
+    }
     
-    # Map columns to our schema (adjust if your CSV has different names)
-    if "country" in df.columns and "period" in df.columns and "value" in df.columns:
-        df = df.rename(columns={
-            "country": "Country",
-            "period": "Date", 
-            "value": "Production_kbpd"
-        })
-        
-        # Convert Date to datetime
-        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
-        df["Production_kbpd"] = pd.to_numeric(df["Production_kbpd"], errors="coerce")
-        df = df.dropna(subset=["Country", "Date", "Production_kbpd"])
-        
-        # Filter to 2019-2024
-        df = df[(df["Date"].dt.year >= 2019) & (df["Date"].dt.year <= 2024)]
-        
-        # Convert annual to monthly (repeat value for each month)
-        monthly_records = []
-        for _, row in df.iterrows():
-            for month in range(1, 13):
-                monthly_records.append({
-                    "Country": row["Country"],
-                    "Date": pd.Timestamp(year=row["Date"].year, month=month, day=1),
-                    "Production_kbpd": row["Production_kbpd"],
-                    "Region": get_region_for_country(row["Country"])
-                })
-        
-        df_monthly = pd.DataFrame(monthly_records)
-        return df_monthly.sort_values(["Country", "Date"]).reset_index(drop=True)
+    all_records = []
     
-    else:
-        raise ValueError(f"CSV missing required columns. Found: {list(df.columns)}")
+    # Process each row
+    for idx, row in df_raw.iterrows():
+        series_id = str(row.iloc[0])
+        
+        # Extract country code from series ID (e.g., "INTL.58-1-NG-TBPD.M" -> "NG")
+        match = re.search(r'INTL\.\d+-\d+-(\w+)-', series_id)
+        if match:
+            country_code = match.group(1)
+            country_name = country_map.get(country_code)
+            
+            if country_name:
+                # Get production values (skip first column which is series ID)
+                values = row.iloc[1:].dropna()
+                
+                # Convert to numeric
+                for time_idx, value in enumerate(values):
+                    try:
+                        prod_value = float(value)
+                        
+                        # Calculate date (assuming monthly data starting from ~2019)
+                        # Adjust start date based on your actual data
+                        start_year = 2019
+                        start_month = 1
+                        
+                        total_months = time_idx
+                        year = start_year + (start_month + total_months - 1) // 12
+                        month = ((start_month + total_months - 1) % 12) + 1
+                        
+                        # Only include 2019-2024
+                        if 2019 <= year <= 2024 and prod_value > 0:
+                            all_records.append({
+                                "Country": country_name,
+                                "Date": pd.Timestamp(year=year, month=month, day=1),
+                                "Production_kbpd": prod_value,
+                                "Region": get_region_for_country(country_name)
+                            })
+                    except (ValueError, TypeError):
+                        continue
+    
+    if not all_records:
+        raise ValueError("No valid production data found in CSV. Check file format.")
+    
+    df_final = pd.DataFrame(all_records)
+    
+    # Remove duplicates and sort
+    df_final = df_final.drop_duplicates(subset=["Country", "Date"])
+    df_final = df_final.sort_values(["Country", "Date"]).reset_index(drop=True)
+    
+    return df_final
 
 @st.cache_data(ttl=3600)
 def load_production_data(use_csv=True):
