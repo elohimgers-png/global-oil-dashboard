@@ -100,66 +100,94 @@ def get_region_for_country(country):
         return "Asia"
     return "Global"
 
+# ==========================================
+# 📊 DATA LOADING FUNCTIONS (CSV + FALLBACK)
+# ==========================================
+
+def get_region_for_country(country):
+    """Assign geographic region based on country name."""
+    if country in ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]:
+        return "Africa"
+    elif country in ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "United Arab Emirates"]:
+        return "Middle East"
+    elif country in ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]:
+        return "Americas"
+    elif country in ["Russia", "Norway", "United Kingdom"]:
+        return "Europe"
+    elif country in ["China", "Japan", "India", "Indonesia"]:
+        return "Asia"
+    return "Global"
+
 @st.cache_data(ttl=3600)
-def load_eia_production_data(api_key):
-    """Fetch real international crude oil production from EIA API."""
-    import requests
-    import time
+def load_eia_csv_data():
+    """Load production data from EIA CSV file."""
+    import os
     
-    EIA_BASE = "https://api.eia.gov/v2/international/data/series/INTL-56-ALL-MSBPD.A."
-    countries_map = {
-        "Nigeria": "NG", "Angola": "AO", "Algeria": "AG", "Libya": "LY", "Egypt": "EG",
-        "Saudi Arabia": "SA", "Iran": "IR", "Iraq": "IZ", "Kuwait": "KU", "United Arab Emirates": "AE",
-        "Russia": "RS", "Norway": "NO", "United Kingdom": "UK",
-        "USA": "US", "Canada": "CA", "Brazil": "BR", "Mexico": "MX", "Venezuela": "VE",
-        "China": "CH", "Japan": "JA", "India": "IN", "Indonesia": "ID"
-    }
+    csv_path = "eia_production.csv"
     
-    all_records = []
-    for country, code in countries_map.items():
-        try:
-            url = f"{EIA_BASE}{code}"
-            params = {"api_key": api_key, "frequency": "annual", "data": [{"v": "value"}]}
-            resp = requests.get(url, params=params, timeout=10)
-            if resp.status_code == 200:
-                data = resp.json().get("response", {}).get("data", [])
-                for rec in data:
-                    yr = int(rec["period"])
-                    prod = float(rec["value"]) if rec["value"] else None
-                    if prod and 2019 <= yr <= 2024:
-                        for m in range(1, 13):
-                            all_records.append({
-                                "Country": country,
-                                "Date": pd.Timestamp(year=yr, month=m, day=1),
-                                "Production_kbpd": prod,
-                                "Region": get_region_for_country(country)
-                            })
-            time.sleep(0.3)  # Respect EIA rate limits
-        except Exception as e:
-            st.warning(f"⚠️ EIA fetch failed for {country}: {str(e)[:80]}")
-            continue
-            
-    if not all_records:
-        raise ValueError("EIA returned no valid production data. Check API key or network.")
+    if not os.path.exists(csv_path):
+        raise FileNotFoundError(f"EIA CSV not found: {csv_path}")
+    
+    # Read CSV
+    df = pd.read_csv(csv_path)
+    
+    # Standardize column names
+    df.columns = df.columns.str.strip().str.lower()
+    
+    # Map columns to our schema (adjust if your CSV has different names)
+    if "country" in df.columns and "period" in df.columns and "value" in df.columns:
+        df = df.rename(columns={
+            "country": "Country",
+            "period": "Date", 
+            "value": "Production_kbpd"
+        })
         
-    df = pd.DataFrame(all_records).sort_values(["Country", "Date"]).reset_index(drop=True)
-    return df
+        # Convert Date to datetime
+        df["Date"] = pd.to_datetime(df["Date"], errors="coerce")
+        df["Production_kbpd"] = pd.to_numeric(df["Production_kbpd"], errors="coerce")
+        df = df.dropna(subset=["Country", "Date", "Production_kbpd"])
+        
+        # Filter to 2019-2024
+        df = df[(df["Date"].dt.year >= 2019) & (df["Date"].dt.year <= 2024)]
+        
+        # Convert annual to monthly (repeat value for each month)
+        monthly_records = []
+        for _, row in df.iterrows():
+            for month in range(1, 13):
+                monthly_records.append({
+                    "Country": row["Country"],
+                    "Date": pd.Timestamp(year=row["Date"].year, month=month, day=1),
+                    "Production_kbpd": row["Production_kbpd"],
+                    "Region": get_region_for_country(row["Country"])
+                })
+        
+        df_monthly = pd.DataFrame(monthly_records)
+        return df_monthly.sort_values(["Country", "Date"]).reset_index(drop=True)
+    
+    else:
+        raise ValueError(f"CSV missing required columns. Found: {list(df.columns)}")
 
 @st.cache_data(ttl=3600)
-def load_production_data(api_key=None):
-    """Main loader: tries EIA API first, falls back to simulated data."""
-    if api_key and len(api_key.strip()) >= 10:
+def load_production_data(use_csv=True):
+    """Main loader: tries EIA CSV first, falls back to simulated data."""
+    if use_csv:
         try:
-            with st.spinner("🌐 Fetching live EIA production data..."):
-                return load_eia_production_data(api_key)
+            with st.spinner("📁 Loading EIA production data from CSV..."):
+                df = load_eia_csv_data()
+                if not df.empty and 'Country' in df.columns:
+                    st.success(f"✅ Loaded {len(df['Country'].unique())} countries from EIA CSV ({len(df)} monthly records)")
+                    return df
+                else:
+                    st.warning("⚠️ EIA CSV loaded but empty. Using simulated fallback.")
         except Exception as e:
-            st.error(f"❌ EIA API Error: {str(e)[:150]}")
+            st.error(f"❌ CSV Load Error: {str(e)[:150]}")
             st.info("ℹ️ Falling back to simulated data for continuity")
-    # Fallback to your existing simulated generator
+    
+    # Fallback to simulated data
     return _load_simulated_production_data()
 
 def _load_simulated_production_data():
-    """Your original simulated data function (keeps dashboard working offline)."""
+    """Simulated data function (keeps dashboard working if CSV missing)."""
     dates = pd.date_range("2019-01-01", "2024-12-01", freq="MS")
     countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt", 
                  "Saudi Arabia", "Russia", "USA", "Canada", "China", "Brazil"]
@@ -176,35 +204,6 @@ def _load_simulated_production_data():
     return pd.DataFrame(data)
 
 
-@st.cache_data(ttl=3600)
-def load_production_data(api_key=None):
-    """Main loader: tries EIA API first, falls back to simulated data."""
-    if api_key and len(api_key.strip()) >= 10:
-        try:
-            with st.spinner("🌐 Fetching live EIA production data..."):
-                return load_eia_production_data(api_key)
-        except Exception as e:
-            st.error(f"❌ EIA API Error: {str(e)[:150]}")
-            st.info("ℹ️ Falling back to simulated data for continuity")
-    # Fallback to your existing simulated generator
-    return _load_simulated_production_data()
-
-def _load_simulated_production_data():
-    """Your original simulated data function (keeps dashboard working offline)."""
-    dates = pd.date_range("2019-01-01", "2024-12-01", freq="MS")
-    countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt", 
-                 "Saudi Arabia", "Russia", "USA", "Canada", "China", "Brazil"]
-    base_prod = {"Nigeria": 1800, "Angola": 1400, "Algeria": 1000, "Libya": 1200, "Egypt": 600,
-                 "Saudi Arabia": 10500, "Russia": 11200, "USA": 19000, "Canada": 5500, 
-                 "China": 3800, "Brazil": 3000}
-    data = []
-    np.random.seed(42)
-    for c in countries:
-        base = base_prod.get(c, 1000)
-        for i, d in enumerate(dates):
-            prod = max(0, base + 0.5*i + 50*np.sin(d.month/12*2*np.pi) + np.random.normal(0, 100))
-            data.append({"Country": c, "Date": d, "Production_kbpd": prod, "Region": get_region_for_country(c)})
-    return pd.DataFrame(data)
 @st.cache_data(ttl=3600)
 def load_prices():
     """Load Brent crude oil prices from Yahoo Finance."""
@@ -360,10 +359,15 @@ def forecast_arima(df_country, steps=12):
 if "eia_api_key" not in st.session_state:
     st.session_state.eia_api_key = ""
 
-# Load data using the EIA-aware function
-prod_df = load_production_data(st.session_state.eia_api_key)
+# Load from EIA CSV (set use_csv=False to force simulated data)
+prod_df = load_production_data(use_csv=True)
 price_df = load_prices()
 
+
+# Safety check
+if prod_df.empty:
+    st.error("❌ Failed to load production data. Check eia_production.csv or fallback code.")
+    st.stop()
 # ==========================================
 # 📱 SIDEBAR
 # ==========================================
