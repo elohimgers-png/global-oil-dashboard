@@ -83,151 +83,54 @@ def convert_fig_to_png(fig):
         return None
 
 # ==========================================
-# 📊 DATA LOADING FUNCTIONS (EIA API + FALLBACK)
+# 📊 DATA LOADING FUNCTIONS
 # ==========================================
-
-def get_region_for_country(country):
-    """Assign geographic region based on country name."""
-    if country in ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]:
-        return "Africa"
-    elif country in ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "United Arab Emirates"]:
-        return "Middle East"
-    elif country in ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]:
-        return "Americas"
-    elif country in ["Russia", "Norway", "United Kingdom"]:
-        return "Europe"
-    elif country in ["China", "Japan", "India", "Indonesia"]:
-        return "Asia"
-    return "Global"
-
-# ==========================================
-# 📊 DATA LOADING FUNCTIONS (CSV + FALLBACK)
-# ==========================================
-
-def get_region_for_country(country):
-    """Assign geographic region based on country name."""
-    if country in ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]:
-        return "Africa"
-    elif country in ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "United Arab Emirates"]:
-        return "Middle East"
-    elif country in ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]:
-        return "Americas"
-    elif country in ["Russia", "Norway", "United Kingdom"]:
-        return "Europe"
-    elif country in ["China", "Japan", "India", "Indonesia"]:
-        return "Asia"
-    return "Global"
 
 @st.cache_data(ttl=3600)
-def load_eia_csv_data():
-    """Load and parse EIA CSV file (wide format)."""
-    import os
-    import re
-    
-    csv_path = "clean_production.csv"    
-    if not os.path.exists(csv_path):
-        raise FileNotFoundError(f"EIA CSV not found: {csv_path}")
-    
-    # Read CSV - skip empty rows
-    df_raw = pd.read_csv(csv_path, header=None, skiprows=lambda x: x < 1)
-    
-    # Country code mapping from EIA series IDs
-    country_map = {
-        "NG": "Nigeria", "AO": "Angola", "AG": "Algeria", "LY": "Libya", "EG": "Egypt",
-        "SA": "Saudi Arabia", "IR": "Iran", "IZ": "Iraq", "KU": "Kuwait", "AE": "United Arab Emirates",
-        "RS": "Russia", "NO": "Norway", "UK": "United Kingdom",
-        "US": "USA", "CA": "Canada", "BR": "Brazil", "MX": "Mexico", "VE": "Venezuela",
-        "CH": "China", "JA": "Japan", "IN": "India", "ID": "Indonesia"
-    }
-    
-    all_records = []
-    
-    # Process each row
-    for idx, row in df_raw.iterrows():
-        series_id = str(row.iloc[0])
-        
-        # Extract country code from series ID (e.g., "INTL.58-1-NG-TBPD.M" -> "NG")
-        match = re.search(r'INTL\.\d+-\d+-(\w+)-', series_id)
-        if match:
-            country_code = match.group(1)
-            country_name = country_map.get(country_code)
-            
-            if country_name:
-                # Get production values (skip first column which is series ID)
-                values = row.iloc[1:].dropna()
-                
-                # Convert to numeric
-                for time_idx, value in enumerate(values):
-                    try:
-                        prod_value = float(value)
-                        
-                        # Calculate date (assuming monthly data starting from ~2019)
-                        # Adjust start date based on your actual data
-                        start_year = 2019
-                        start_month = 1
-                        
-                        total_months = time_idx
-                        year = start_year + (start_month + total_months - 1) // 12
-                        month = ((start_month + total_months - 1) % 12) + 1
-                        
-                        # Only include 2019-2024
-                        if 2019 <= year <= 2024 and prod_value > 0:
-                            all_records.append({
-                                "Country": country_name,
-                                "Date": pd.Timestamp(year=year, month=month, day=1),
-                                "Production_kbpd": prod_value,
-                                "Region": get_region_for_country(country_name)
-                            })
-                    except (ValueError, TypeError):
-                        continue
-    
-    if not all_records:
-        raise ValueError("No valid production data found in CSV. Check file format.")
-    
-    df_final = pd.DataFrame(all_records)
-    
-    # Remove duplicates and sort
-    df_final = df_final.drop_duplicates(subset=["Country", "Date"])
-    df_final = df_final.sort_values(["Country", "Date"]).reset_index(drop=True)
-    
-    return df_final
-
-@st.cache_data(ttl=3600)
-def load_production_data(use_csv=True):
-    """Main loader: tries EIA CSV first, falls back to simulated data."""
-    if use_csv:
-        try:
-            with st.spinner("📁 Loading EIA production data from CSV..."):
-                df = load_eia_csv_data()
-                if not df.empty and 'Country' in df.columns:
-                    st.success(f"✅ Loaded {len(df['Country'].unique())} countries from EIA CSV ({len(df)} monthly records)")
-                    return df
-                else:
-                    st.warning("⚠️ EIA CSV loaded but empty. Using simulated fallback.")
-        except Exception as e:
-            st.error(f"❌ CSV Load Error: {str(e)[:150]}")
-            st.info("ℹ️ Falling back to simulated data for continuity")
-    
-    # Fallback to simulated data
-    return _load_simulated_production_data()
-
-def _load_simulated_production_data():
-    """Simulated data function (keeps dashboard working if CSV missing)."""
+def load_production_data():
+    """Load oil production data (2019-2024 synthetic to match Yahoo Finance timeframe)."""
     dates = pd.date_range("2019-01-01", "2024-12-01", freq="MS")
     countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt", 
                  "Saudi Arabia", "Russia", "USA", "Canada", "China", "Brazil"]
-    base_prod = {"Nigeria": 1800, "Angola": 1400, "Algeria": 1000, "Libya": 1200, "Egypt": 600,
-                 "Saudi Arabia": 10500, "Russia": 11200, "USA": 19000, "Canada": 5500, 
-                 "China": 3800, "Brazil": 3000}
+    
+    base_production = {
+        "Nigeria": 1800, "Angola": 1400, "Algeria": 1000, "Libya": 1200, "Egypt": 600,
+        "Saudi Arabia": 10500, "Russia": 11200, "USA": 19000, "Canada": 5500, 
+        "China": 3800, "Brazil": 3000
+    }
+    
     data = []
     np.random.seed(42)
-    for c in countries:
-        base = base_prod.get(c, 1000)
-        for i, d in enumerate(dates):
-            prod = max(0, base + 0.5*i + 50*np.sin(d.month/12*2*np.pi) + np.random.normal(0, 100))
-            data.append({"Country": c, "Date": d, "Production_kbpd": prod, "Region": get_region_for_country(c)})
+    
+    for country in countries:
+        base = base_production.get(country, 1000)
+        for i, date in enumerate(dates):
+            trend = 0.5 * i
+            seasonal = 50 * np.sin(date.month / 12 * 2 * np.pi)
+            noise = np.random.normal(0, 100)
+            production = max(0, base + trend + seasonal + noise)
+            
+            if country in ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]:
+                region = "Africa"
+            elif country in ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "UAE"]:
+                region = "Middle East"
+            elif country in ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]:
+                region = "Americas"
+            elif country in ["Russia", "Norway", "United Kingdom"]:
+                region = "Europe"
+            elif country in ["China", "India", "Indonesia"]:
+                region = "Asia"
+            else:
+                region = "Global"
+            
+            data.append({
+                "Country": country,
+                "Date": date,
+                "Production_kbpd": production,
+                "Region": region
+            })
+    
     return pd.DataFrame(data)
-
 
 @st.cache_data(ttl=3600)
 def load_prices():
@@ -379,20 +282,9 @@ def forecast_arima(df_country, steps=12):
 # ==========================================
 # 🚀 LOAD DATA
 # ==========================================
-
-# Initialize session state for API key if not exists
-if "eia_api_key" not in st.session_state:
-    st.session_state.eia_api_key = ""
-
-# Load from EIA CSV (set use_csv=False to force simulated data)
-prod_df = load_production_data(use_csv=True)
+prod_df = load_production_data()
 price_df = load_prices()
 
-
-# Safety check
-if prod_df.empty:
-    st.error("❌ Failed to load production data. Check eia_production.csv or fallback code.")
-    st.stop()
 # ==========================================
 # 📱 SIDEBAR
 # ==========================================
@@ -410,18 +302,6 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     st.markdown("---")
-
-    st.divider()
-    st.subheader("🔑 Data Source")
-    eia_key = st.text_input(
-        "EIA API Key (optional)",
-        type="password",
-        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
-        help="Get free key: https://www.eia.gov/opendata/register.php"
-    )
-    st.session_state.eia_api_key = eia_key  # Store for data loader
-    st.caption("Live EIA data updates monthly. Falls back to demo data if offline.")
-    st.divider()
     
     with st.expander("📖 About This Dashboard"):
         st.markdown("""
