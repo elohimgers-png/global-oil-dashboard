@@ -83,54 +83,121 @@ def convert_fig_to_png(fig):
         return None
 
 # ==========================================
-# 📊 DATA LOADING FUNCTIONS
+# 📊 DATA LOADING FUNCTIONS (EIA API + FALLBACK)
 # ==========================================
 
+def get_region_for_country(country):
+    """Assign geographic region based on country name."""
+    if country in ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]:
+        return "Africa"
+    elif country in ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "United Arab Emirates"]:
+        return "Middle East"
+    elif country in ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]:
+        return "Americas"
+    elif country in ["Russia", "Norway", "United Kingdom"]:
+        return "Europe"
+    elif country in ["China", "Japan", "India", "Indonesia"]:
+        return "Asia"
+    return "Global"
+
 @st.cache_data(ttl=3600)
-def load_production_data():
-    """Load oil production data (2019-2024 synthetic to match Yahoo Finance timeframe)."""
+def load_eia_production_data(api_key):
+    """Fetch real international crude oil production from EIA API."""
+    import requests
+    import time
+    
+    EIA_BASE = "https://api.eia.gov/v2/international/data/series/INTL-56-ALL-MSBPD.A."
+    countries_map = {
+        "Nigeria": "NG", "Angola": "AO", "Algeria": "AG", "Libya": "LY", "Egypt": "EG",
+        "Saudi Arabia": "SA", "Iran": "IR", "Iraq": "IZ", "Kuwait": "KU", "United Arab Emirates": "AE",
+        "Russia": "RS", "Norway": "NO", "United Kingdom": "UK",
+        "USA": "US", "Canada": "CA", "Brazil": "BR", "Mexico": "MX", "Venezuela": "VE",
+        "China": "CH", "Japan": "JA", "India": "IN", "Indonesia": "ID"
+    }
+    
+    all_records = []
+    for country, code in countries_map.items():
+        try:
+            url = f"{EIA_BASE}{code}"
+            params = {"api_key": api_key, "frequency": "annual", "data": [{"v": "value"}]}
+            resp = requests.get(url, params=params, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json().get("response", {}).get("data", [])
+                for rec in data:
+                    yr = int(rec["period"])
+                    prod = float(rec["value"]) if rec["value"] else None
+                    if prod and 2019 <= yr <= 2024:
+                        for m in range(1, 13):
+                            all_records.append({
+                                "Country": country,
+                                "Date": pd.Timestamp(year=yr, month=m, day=1),
+                                "Production_kbpd": prod,
+                                "Region": get_region_for_country(country)
+                            })
+            time.sleep(0.3)  # Respect EIA rate limits
+        except Exception as e:
+            st.warning(f"⚠️ EIA fetch failed for {country}: {str(e)[:80]}")
+            continue
+            
+    if not all_records:
+        raise ValueError("EIA returned no valid production data. Check API key or network.")
+        
+    df = pd.DataFrame(all_records).sort_values(["Country", "Date"]).reset_index(drop=True)
+    return df
+
+@st.cache_data(ttl=3600)
+def load_production_data(api_key=None):
+    """Main loader: tries EIA API first, falls back to simulated data."""
+    if api_key and len(api_key.strip()) >= 10:
+        try:
+            with st.spinner("🌐 Fetching live EIA production data..."):
+                return load_eia_production_data(api_key)
+        except Exception as e:
+            st.error(f"❌ EIA API Error: {str(e)[:150]}")
+            st.info("ℹ️ Falling back to simulated data for continuity")
+    # Fallback to your existing simulated generator
+    return _load_simulated_production_data()
+
+def _load_simulated_production_data():
+    """Your original simulated data function (keeps dashboard working offline)."""
     dates = pd.date_range("2019-01-01", "2024-12-01", freq="MS")
     countries = ["Nigeria", "Angola", "Algeria", "Libya", "Egypt", 
                  "Saudi Arabia", "Russia", "USA", "Canada", "China", "Brazil"]
-    
-    base_production = {
-        "Nigeria": 1800, "Angola": 1400, "Algeria": 1000, "Libya": 1200, "Egypt": 600,
-        "Saudi Arabia": 10500, "Russia": 11200, "USA": 19000, "Canada": 5500, 
-        "China": 3800, "Brazil": 3000
-    }
-    
+    base_prod = {"Nigeria": 1800, "Angola": 1400, "Algeria": 1000, "Libya": 1200, "Egypt": 600,
+                 "Saudi Arabia": 10500, "Russia": 11200, "USA": 19000, "Canada": 5500, 
+                 "China": 3800, "Brazil": 3000}
     data = []
     np.random.seed(42)
-    
-    for country in countries:
-        base = base_production.get(country, 1000)
-        for i, date in enumerate(dates):
-            trend = 0.5 * i
-            seasonal = 50 * np.sin(date.month / 12 * 2 * np.pi)
-            noise = np.random.normal(0, 100)
-            production = max(0, base + trend + seasonal + noise)
-            
-            if country in ["Nigeria", "Angola", "Algeria", "Libya", "Egypt"]:
-                region = "Africa"
-            elif country in ["Saudi Arabia", "Iran", "Iraq", "Kuwait", "UAE"]:
-                region = "Middle East"
-            elif country in ["USA", "Canada", "Brazil", "Mexico", "Venezuela"]:
-                region = "Americas"
-            elif country in ["Russia", "Norway", "United Kingdom"]:
-                region = "Europe"
-            elif country in ["China", "India", "Indonesia"]:
-                region = "Asia"
-            else:
-                region = "Global"
-            
-            data.append({
-                "Country": country,
-                "Date": date,
-                "Production_kbpd": production,
-                "Region": region
-            })
-    
+    for c in countries:
+        base = base_prod.get(c, 1000)
+        for i, d in enumerate(dates):
+            prod = max(0, base + 0.5*i + 50*np.sin(d.month/12*2*np.pi) + np.random.normal(0, 100))
+            data.append({"Country": c, "Date": d, "Production_kbpd": prod, "Region": get_region_for_country(c)})
     return pd.DataFrame(data)
+
+@st.cache_data(ttl=3600)
+def load_production_data(api_key=None):
+    """
+    Main data loading function with fallback to simulated data.
+    """
+    if api_key and len(api_key.strip()) > 0:
+        try:
+            with st.spinner(" Fetching live data from EIA API..."):
+                df = load_eia_production_data(api_key)
+                st.success(f"✅ Loaded {len(df['Country'].unique())} countries from EIA ({len(df)} monthly records)")
+                return df
+        except Exception as e:
+            st.error(f"❌ EIA API failed: {str(e)[:200]}")
+            st.info("ℹ️ Falling back to simulated data for demonstration")
+    
+    # Fallback to simulated data (your existing function)
+    return load_simulated_production_data()
+
+def load_simulated_production_data():
+    """Your existing simulated data function (keep this as fallback)."""
+    # ... [paste your existing load_production_data function code here] ...
+    # This is the function you already have that generates synthetic data
+    pass  # Replace with your actual simulated data code
 
 @st.cache_data(ttl=3600)
 def load_prices():
@@ -282,7 +349,7 @@ def forecast_arima(df_country, steps=12):
 # ==========================================
 # 🚀 LOAD DATA
 # ==========================================
-prod_df = load_production_data()
+
 price_df = load_prices()
 
 # ==========================================
@@ -302,6 +369,18 @@ with st.sidebar:
     """, unsafe_allow_html=True)
     
     st.markdown("---")
+
+    st.divider()
+    st.subheader("🔑 Data Source")
+    eia_key = st.text_input(
+        "EIA API Key (optional)",
+        type="password",
+        placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        help="Get free key: https://www.eia.gov/opendata/register.php"
+    )
+    st.session_state.eia_api_key = eia_key  # Store for data loader
+    st.caption("Live EIA data updates monthly. Falls back to demo data if offline.")
+    st.divider()
     
     with st.expander("📖 About This Dashboard"):
         st.markdown("""
