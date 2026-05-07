@@ -350,6 +350,12 @@ def forecast_arima(df_country, steps=12):
 # 🚀 LOAD DATA
 # ==========================================
 
+# Initialize session state for API key if not exists
+if "eia_api_key" not in st.session_state:
+    st.session_state.eia_api_key = ""
+
+# Load data using the EIA-aware function
+prod_df = load_production_data(st.session_state.eia_api_key)
 price_df = load_prices()
 
 # ==========================================
